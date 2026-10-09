@@ -1,0 +1,31 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { listValues, searchRecords, filterRecords, groupRecords, titleColumn, previewColumns, canMoveRecord, moveValue, sortRecords, recordTitle } from '../src/lib/viewModel.js'
+const infos = { Photo: {type:'Attachments'}, Nom: {type:'Text',label:'Nom'}, Statut:{type:'Choice',choices:['En cours','Terminé','À démarrer']}, Tags:{type:'ChoiceList'}, Publie:{type:'Bool'}, Date:{type:'Date'} }
+const rows = [{id:1,Photo:['L',42],Nom:'École des données',Statut:'En cours',Tags:['L','A','B'],Publie:true,Date:5},{id:2,Nom:'Route 10',Statut:'Terminé',Tags:['L'],Publie:false,Date:2},{id:3,Nom:'Route 2',Statut:'',Publie:false,Date:null}]
+test('Grist list marker excluded',()=>assert.deepEqual(listValues(['L','A','B']),['A','B']))
+test('search ignores accents and case',()=>assert.deepEqual(searchRecords(rows,Object.keys(infos),infos,'ECOLE donnees').map(r=>r.id),[1]))
+test('search combines words across columns',()=>assert.equal(searchRecords(rows,Object.keys(infos),infos,'route termine').length,1))
+test('attachments ids are not searched',()=>assert.equal(searchRecords(rows,Object.keys(infos),infos,'42').length,0))
+test('empty query returns all rows',()=>assert.equal(searchRecords(rows,Object.keys(infos),infos,'   ').length,3))
+test('Choice filters exact instead of substring',()=>assert.equal(filterRecords(rows,'Statut',['cours'],infos).length,0))
+test('Text filter accepts partial match',()=>assert.equal(filterRecords(rows,'Nom',['route'],infos).length,2))
+test('ChoiceList retains exact multi filter',()=>assert.equal(filterRecords(rows,'Tags',['B'],infos).length,1))
+test('Boolean false is a real filter value',()=>assert.equal(filterRecords(rows,'Publie',['false'],infos).length,2))
+test('title avoids first attachment column',()=>assert.equal(titleColumn(Object.keys(infos),infos), 'Nom'))
+test('configured title overrides heuristic',()=>assert.equal(titleColumn(Object.keys(infos),infos,'Statut'),'Statut'))
+test('empty title has readable fallback',()=>assert.equal(recordTitle({Nom:''},Object.keys(infos),infos),'Sans titre'))
+test('preview excludes attachment and prefers business choices',()=>assert.deepEqual(previewColumns(Object.keys(infos),infos,'Nom'),['Statut','Tags','Publie']))
+test('explicit empty preview is respected',()=>assert.deepEqual(previewColumns(Object.keys(infos),infos,'Nom',[]),[]))
+test('configured empty Choice destinations remain visible',()=>assert.equal(groupRecords(rows,'Statut',infos).find(g=>g.label==='À démarrer').records.length,0))
+test('empty grouping values are normalized',()=>assert.equal(groupRecords(rows,'Statut',infos).find(g=>g.value===null).records[0].id,3))
+test('empty label does not collide with literal text',()=>assert.equal(groupRecords([{id:1,F:''},{id:2,F:'Sans valeur'}],'F',{}).length,2))
+test('multi groups preserve all memberships',()=>assert.deepEqual(groupRecords(rows,'Tags',infos).filter(g=>g.records.some(r=>r.id===1)).map(g=>g.label),['A','B']))
+test('read-only never moves',()=>assert.equal(canMoveRecord(infos.Statut,true),false))
+test('formula never moves',()=>assert.equal(canMoveRecord({type:'Choice',isFormula:true},false),false))
+test('multi choice never overwrites',()=>assert.equal(canMoveRecord(infos.Tags,false),false))
+test('reference cannot be overwritten with a label',()=>assert.equal(canMoveRecord({type:'Ref:Table'},false),false))
+test('empty destination sends empty cell, not display label',()=>assert.equal(moveValue({value:null},infos.Statut),''))
+test('Boolean destinations keep their type',()=>assert.equal(typeof moveValue({value:false},infos.Publie),'boolean'))
+test('sort is numeric and leaves blank last',()=>assert.deepEqual(sortRecords(rows,'Date','desc').map(r=>r.id),[1,2,3]))
+test('text natural sort puts Route 2 before Route 10',()=>assert.deepEqual(sortRecords(rows.slice(1),'Nom','asc').map(r=>r.id),[3,2]))
